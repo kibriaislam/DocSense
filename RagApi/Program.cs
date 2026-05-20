@@ -2,7 +2,9 @@ using FluentValidation;
 using MediatR;
 using Microsoft.OpenApi.Models;
 using RagApi.Application.Behaviours;
+using RagApi.Application.Interfaces;
 using RagApi.Infrastructure;
+using RagApi.Infrastructure.Parsing;
 using RagApi.Infrastructure.Options;
 using RagApi.Middleware;
 using Serilog;
@@ -65,6 +67,18 @@ try
 
     // Infrastructure services registered here
     builder.Services.AddInfrastructure();
+
+    builder.Services.AddSingleton<PdfDocumentParser>();
+    builder.Services.AddSingleton<DocxDocumentParser>();
+    builder.Services.AddSingleton<TxtDocumentParser>();
+    builder.Services.AddSingleton<IEnumerable<IDocumentParser>>(sp => new IDocumentParser[]
+    {
+        sp.GetRequiredService<PdfDocumentParser>(),
+        sp.GetRequiredService<DocxDocumentParser>(),
+        sp.GetRequiredService<TxtDocumentParser>()
+    });
+    builder.Services.AddSingleton<CompositeDocumentParser>();
+    builder.Services.AddSingleton<IDocumentParser>(sp => sp.GetRequiredService<CompositeDocumentParser>());
 
     // Controllers registered here
     builder.Services.AddControllers();
