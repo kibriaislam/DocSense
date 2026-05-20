@@ -1,5 +1,8 @@
+using MediatR;
+using Microsoft.OpenApi.Models;
 using RagApi.Application;
 using RagApi.Infrastructure;
+using RagApi.Infrastructure.Options;
 using RagApi.Middleware;
 using Serilog;
 
@@ -17,11 +20,49 @@ try
         .Enrich.FromLogContext()
         .WriteTo.Console());
 
+    builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection(OllamaOptions.SectionName));
+    builder.Services.Configure<ChunkingOptions>(builder.Configuration.GetSection(ChunkingOptions.SectionName));
+    builder.Services.Configure<ApiOptions>(builder.Configuration.GetSection(ApiOptions.SectionName));
+
+    builder.Services.AddMediatR(cfg =>
+        cfg.RegisterServicesFromAssembly(typeof(global::RagApi.Application.DependencyInjection).Assembly));
+
     builder.Services.AddApplication();
-    builder.Services.AddInfrastructure();
-    builder.Services.AddControllers();
+
     builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen();
+    builder.Services.AddSwaggerGen(options =>
+    {
+        options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+        {
+            Description = "API key using Bearer scheme. Example: \"Bearer {your-api-key}\"",
+            Name = "Authorization",
+            In = ParameterLocation.Header,
+            Type = SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "ApiKey"
+        });
+
+        options.AddSecurityRequirement(new OpenApiSecurityRequirement
+        {
+            {
+                new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference
+                    {
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer"
+                    }
+                },
+                Array.Empty<string>()
+            }
+        });
+    });
+
+    // Infrastructure services registered here
+    builder.Services.AddInfrastructure();
+
+    // Controllers registered here
+    builder.Services.AddControllers();
 
     var app = builder.Build();
 
@@ -35,6 +76,15 @@ try
 
     app.UseHttpsRedirection();
     app.UseAuthorization();
+
+    app.UseMiddleware<ApiKeyMiddleware>();
+
+    app.MapGet("/health", () => Results.Ok(new
+    {
+        status = "ok",
+        timestamp = DateTime.UtcNow
+    }));
+
     app.MapControllers();
 
     app.Run();
