@@ -66,6 +66,9 @@ try
     });
 
     // Infrastructure services registered here
+    builder.Services.AddHttpClient<RagApi.Infrastructure.Ollama.OllamaClientService>(client =>
+        client.Timeout = TimeSpan.FromMinutes(2))
+        .AddStandardResilienceHandler();
     builder.Services.AddInfrastructure();
 
     builder.Services.AddSingleton<PdfDocumentParser>();
