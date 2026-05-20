@@ -1,9 +1,23 @@
 using System.Net.Http.Json;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using RagApi.Infrastructure.Options;
 
 namespace RagApi.Infrastructure.Ollama;
+
+internal record OllamaEmbedRequest(
+    [property: JsonPropertyName("model")] string Model,
+    [property: JsonPropertyName("input")] string Input);
+
+internal record OllamaEmbedResponse(
+    [property: JsonPropertyName("embeddings")] float[][] Embeddings);
+
+internal record OllamaGenerateChunk(
+    [property: JsonPropertyName("response")] string? Response,
+    [property: JsonPropertyName("done")] bool Done);
 
 public class OllamaClientService
 {
@@ -70,11 +84,65 @@ public class OllamaClientService
             .Select(result => result.embedding)
             .ToList();
     }
+
+    public async IAsyncEnumerable<string> GenerateStreamAsync(
+        string prompt,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var url = $"{_options.BaseUrl.TrimEnd('/')}/api/generate";
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = JsonContent.Create(new
+            {
+                model = _options.GenerateModel,
+                prompt,
+                stream = true
+            })
+        };
+
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            throw new HttpRequestException(
+                $"Ollama generate request failed with status {(int)response.StatusCode} ({response.StatusCode}): {body}");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var chunk = JsonSerializer.Deserialize<OllamaGenerateChunk>(line);
+            if (!string.IsNullOrEmpty(chunk?.Response))
+            {
+                yield return chunk.Response;
+            }
+
+            if (chunk?.Done == true)
+            {
+                break;
+            }
+        }
+    }
+
+    public async Task<string> GenerateAsync(string prompt, CancellationToken ct = default)
+    {
+        var builder = new StringBuilder();
+
+        await foreach (var token in GenerateStreamAsync(prompt, ct))
+        {
+            builder.Append(token);
+        }
+
+        return builder.ToString();
+    }
 }
-
-internal record OllamaEmbedRequest(
-    [property: JsonPropertyName("model")] string Model,
-    [property: JsonPropertyName("input")] string Input);
-
-internal record OllamaEmbedResponse(
-    [property: JsonPropertyName("embeddings")] float[][] Embeddings);
