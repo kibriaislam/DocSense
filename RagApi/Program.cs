@@ -1,6 +1,7 @@
+using FluentValidation;
 using MediatR;
 using Microsoft.OpenApi.Models;
-using RagApi.Application;
+using RagApi.Application.Behaviours;
 using RagApi.Infrastructure;
 using RagApi.Infrastructure.Options;
 using RagApi.Middleware;
@@ -25,9 +26,13 @@ try
     builder.Services.Configure<ApiOptions>(builder.Configuration.GetSection(ApiOptions.SectionName));
 
     builder.Services.AddMediatR(cfg =>
-        cfg.RegisterServicesFromAssembly(typeof(global::RagApi.Application.DependencyInjection).Assembly));
+    {
+        cfg.RegisterServicesFromAssembly(typeof(global::RagApi.Application.DependencyInjection).Assembly);
+        cfg.AddOpenBehavior(typeof(ValidationBehaviour<,>));
+    });
 
-    builder.Services.AddApplication();
+    // Application services registered here
+    builder.Services.AddValidatorsFromAssembly(typeof(global::RagApi.Application.DependencyInjection).Assembly);
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
