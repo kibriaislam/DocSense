@@ -1,10 +1,13 @@
 using FluentValidation;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
+using Pgvector.EntityFrameworkCore;
 using RagApi.Application.Behaviours;
 using RagApi.Application.Interfaces;
 using RagApi.Infrastructure;
 using RagApi.Infrastructure.Parsing;
+using RagApi.Infrastructure.Persistence;
 using RagApi.Infrastructure.Options;
 using RagApi.Middleware;
 using Serilog;
@@ -69,6 +72,12 @@ try
     builder.Services.AddHttpClient<RagApi.Infrastructure.Ollama.OllamaClientService>(client =>
         client.Timeout = TimeSpan.FromMinutes(2))
         .AddStandardResilienceHandler();
+    builder.Services.AddScoped<IEmbeddingService, RagApi.Infrastructure.Ollama.OllamaEmbeddingService>();
+    builder.Services.AddScoped<IGenerationService, RagApi.Infrastructure.Ollama.OllamaGenerationService>();
+    builder.Services.AddDbContext<AppDbContext>(options =>
+        options.UseNpgsql(
+            builder.Configuration.GetConnectionString("Default"),
+            npgsqlOptions => npgsqlOptions.UseVector()));
     builder.Services.AddInfrastructure();
 
     builder.Services.AddSingleton<PdfDocumentParser>();

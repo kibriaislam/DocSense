@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RagApi.Application\RagApi.Application.csproj" />
+    <ProjectReference Include="..\RagApi.Domain\RagApi.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -10,6 +11,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.8" />
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.6.0" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="Pgvector.EntityFrameworkCore" Version="0.2.2" />
