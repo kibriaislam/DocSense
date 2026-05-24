@@ -1,5 +1,6 @@
 using FluentValidation;
 using MediatR;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 using Pgvector.EntityFrameworkCore;
@@ -11,7 +12,7 @@ using RagApi.Infrastructure.Persistence;
 using RagApi.Infrastructure.Options;
 using RagApi.Middleware;
 using Serilog;
-
+using System.Threading.RateLimiting;
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
     .CreateBootstrapLogger();
@@ -42,6 +43,12 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
     {
+        var xmlPath = Path.Combine(AppContext.BaseDirectory, $"{typeof(Program).Assembly.GetName().Name}.xml");
+        if (File.Exists(xmlPath))
+        {
+            options.IncludeXmlComments(xmlPath);
+        }
+
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
             Description = "API key using Bearer scheme. Example: \"Bearer {your-api-key}\"",
@@ -78,6 +85,7 @@ try
         options.UseNpgsql(
             builder.Configuration.GetConnectionString("Default"),
             npgsqlOptions => npgsqlOptions.UseVector()));
+    builder.Services.AddScoped<IVectorRepository, RagApi.Infrastructure.Persistence.PgVectorRepository>();
     builder.Services.AddInfrastructure();
 
     builder.Services.AddSingleton<PdfDocumentParser>();
@@ -95,9 +103,44 @@ try
     // Controllers registered here
     builder.Services.AddControllers();
 
+    builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+    builder.Services.AddProblemDetails();
+
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = async (context, cancellationToken) =>
+        {
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var retryAfter))
+            {
+                context.HttpContext.Response.Headers.RetryAfter =
+                    ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            context.HttpContext.Response.ContentType = "application/json";
+            await context.HttpContext.Response.WriteAsJsonAsync(
+                new { type = "rate_limit_exceeded", message = "Too many requests. Please try again later." },
+                cancellationToken);
+        };
+
+        options.AddPolicy("query-limit", httpContext =>
+        {
+            var partitionKey = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+
+            return RateLimitPartition.GetFixedWindowLimiter(
+                partitionKey,
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = 20,
+                    Window = TimeSpan.FromMinutes(1),
+                    QueueLimit = 0
+                });
+        });
+    });
+
     var app = builder.Build();
 
-    app.UseMiddleware<ExceptionHandlingMiddleware>();
+    app.UseExceptionHandler();
 
     if (app.Environment.IsDevelopment())
     {
@@ -106,6 +149,7 @@ try
     }
 
     app.UseHttpsRedirection();
+    app.UseRateLimiter();
     app.UseAuthorization();
 
     app.UseMiddleware<ApiKeyMiddleware>();
